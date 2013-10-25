@@ -3,20 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <memory.h>
-#include <getopt.h>
-#include <limits.h>
+#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <dirent.h>
 #include <errno.h>
 #include <err.h>
-
-#include <libudev.h>
-#include <sys/types.h>
 #include <sys/epoll.h>
 #include <sys/wait.h>
 #include <linux/input.h>
+#include <libudev.h>
 
 static struct udev *udev;
 static struct udev_monitor *input_mon;
