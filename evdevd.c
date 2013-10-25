@@ -1,3 +1,5 @@
+#include "evdevd.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -19,22 +21,6 @@
 static struct udev *udev;
 static struct udev_monitor *input_mon;
 static int epoll_fd;
-
-struct command_t {
-    const char *name;
-    char *const *argv;
-};
-
-struct command_t Keys[256] = {
-    [KEY_VOLUMEUP] = {
-        .name = "ponymix",
-        .argv = (char *const []){ "/usr/bin/ponymix", "increase", "5", NULL }
-    },
-    [KEY_VOLUMEDOWN] = {
-        .name = "ponymix",
-        .argv = (char *const []){ "/usr/bin/ponymix", "decrease", "5", NULL }
-    }
-};
 
 // {{{1 EVDEV
 static inline uint8_t bit(int bit, const uint8_t array[static (EV_MAX + 7) / 8])
