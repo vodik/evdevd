@@ -151,6 +151,8 @@ static void udev_monitor_input(void)
 
 static void run_command(struct command_t *cmd)
 {
+    int stat = 0;
+
     switch (fork()) {
         case -1:
             err(1, "fork failed");
@@ -162,8 +164,6 @@ static void run_command(struct command_t *cmd)
         default:
             break;
     }
-
-    int stat;
 
     if (wait(&stat) < 1)
         err(EXIT_FAILURE, "failed to get process status");
