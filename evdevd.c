@@ -28,7 +28,7 @@ static int ev_open(const char *devnode, const char *name, size_t buf)
     int fd, rc = 0;
     uint8_t evtype_bitmask[(EV_MAX + 7) / 8];
 
-    fd = open(devnode, O_RDONLY | O_NONBLOCK);
+    fd = open(devnode, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0)
         return -1;
 
@@ -224,13 +224,13 @@ static int loop(void)
 
 int main(void)
 {
-    epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0)
-        err(EXIT_FAILURE, "failed to create epoll fd");
-
     udev = udev_new();
     if (!udev)
         err(EXIT_FAILURE, "can't create udev");
+
+    epoll_fd = epoll_create1(0);
+    if (epoll_fd < 0)
+        err(EXIT_FAILURE, "failed to create epoll fd");
 
     udev_init_input();
     loop();
