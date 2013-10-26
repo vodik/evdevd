@@ -9,13 +9,52 @@
 #include <errno.h>
 #include <err.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <linux/input.h>
 #include <libudev.h>
+#include <systemd/sd-daemon.h>
 
+static bool sd_activated = false;
 static struct udev *udev;
 static struct udev_monitor *input_mon;
-static int epoll_fd;
+static int epoll_fd, server_sock;
+
+size_t init_evdevd_socket(struct sockaddr_un *un);
+void unlink_evdevd_socket(void);
+
+/* {{{1 COMMON */
+static const char *get_socket_path(void)
+{
+    const char *socket = getenv("EVDEVD_SOCKET");
+    return socket ? socket : "@/vodik/evdevd";
+}
+
+size_t init_evdevd_socket(struct sockaddr_un *un)
+{
+    const char *socket = get_socket_path();
+    off_t off = 0;
+    size_t len;
+
+    *un = (struct sockaddr_un){ .sun_family = AF_UNIX };
+
+    if (socket[0] == '@')
+        off = 1;
+
+    len = strlen(socket);
+    memcpy(&un->sun_path[off], &socket[off], len - off);
+
+    return len + sizeof(un->sun_family);
+}
+
+void unlink_evdevd_socket(void)
+{
+    const char *socket = get_socket_path();
+    if (socket[0] != '@')
+        unlink(socket);
+}
+/* }}} */
 
 // {{{1 EVDEV
 static inline uint8_t bit(int bit, const uint8_t array[static (EV_MAX + 7) / 8])
@@ -130,6 +169,45 @@ static void udev_monitor_input(void)
     }
 }
 
+/* {{{1 SOCKETS */
+static int get_socket(void)
+{
+    int fd, n;
+
+    n = sd_listen_fds(0);
+    if (n > 1)
+        err(EXIT_FAILURE, "too many file descriptors recieved");
+    else if (n == 1) {
+        fd = SD_LISTEN_FDS_START;
+        sd_activated = true;
+    } else {
+        union {
+            struct sockaddr sa;
+            struct sockaddr_un un;
+        } sa;
+        socklen_t sa_len;
+
+        fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (fd < 0)
+            err(EXIT_FAILURE, "couldn't create socket");
+
+        sa_len = init_evdevd_socket(&sa.un);
+        if (bind(fd, &sa.sa, sa_len) < 0)
+            err(EXIT_FAILURE, "failed to bind");
+
+        if (sa.un.sun_path[0] != '@')
+            /* chmod(sa.un.sun_path, multiuser_mode ? 0777 : 0700); */
+            chmod(sa.un.sun_path, 0777);
+
+        if (listen(fd, SOMAXCONN) < 0)
+            err(EXIT_FAILURE, "failed to listen");
+    }
+
+    return fd;
+}
+/* }}} */
+
+/* {{{1 CLIENT CODE */
 static void run_command(struct command_t *cmd)
 {
     int stat = 0;
@@ -233,5 +311,7 @@ int main(void)
         err(EXIT_FAILURE, "failed to create epoll fd");
 
     udev_init_input();
+    server_sock = get_socket();
+
     loop();
 }
