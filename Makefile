@@ -8,10 +8,11 @@ CFLAGS := -std=c99 \
 
 LDLIBS = -ludev -lsystemd-daemon
 
-all: evdevd
+all: evdevd evdev
 evdevd: evdevd.o
+evdev: evdev.o
 
 clean:
-	${RM} evdevd *.o
+	${RM} evdev evdevd *.o
 
 .PHONY: clean install uninstall

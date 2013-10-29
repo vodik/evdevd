@@ -21,6 +21,8 @@ static struct udev *udev;
 static struct udev_monitor *input_mon;
 static int epoll_fd, server_sock;
 
+int last_cfd = 0;
+
 size_t init_evdevd_socket(struct sockaddr_un *un);
 void unlink_evdevd_socket(void);
 
@@ -208,35 +210,6 @@ static int get_socket(void)
 /* }}} */
 
 /* {{{1 CLIENT CODE */
-static void run_command(struct command_t *cmd)
-{
-    int stat = 0;
-
-    switch (fork()) {
-        case -1:
-            err(1, "fork failed");
-            break;
-        case 0:
-            execvp(cmd->argv[0], cmd->argv);
-            err(EXIT_FAILURE, "failed to start %s", cmd->name);
-            break;
-        default:
-            break;
-    }
-
-    if (wait(&stat) < 1)
-        err(EXIT_FAILURE, "failed to get process status");
-
-    if (stat) {
-        if (WIFEXITED(stat))
-            fprintf(stderr, "%s exited with status %d.\n",
-                    cmd->name, WEXITSTATUS(stat));
-        if (WIFSIGNALED(stat))
-            fprintf(stderr, "%s terminated with signal %d.\n",
-                    cmd->name, WTERMSIG(stat));
-    }
-}
-
 static void read_event(int fd)
 {
     ssize_t nbytes_r;
@@ -256,24 +229,36 @@ static void read_event(int fd)
         if (event.value != 1)
             continue;
 
-        printf("%d, %d, %d\n", event.type, event.code, event.value);
-
-        if (Keys[event.code].name) {
-            printf("RUNNING %s\n", Keys[event.code].name);
-            run_command(&Keys[event.code]);
+        if (last_cfd) {
+            printf("%d, %d, %d\n", event.type, event.code, event.value);
+            write(last_cfd, &event, sizeof(struct input_event));
         }
     }
+}
+
+static void accept_conn()
+{
+    int cfd = accept4(server_sock, NULL, NULL, SOCK_CLOEXEC);
+    if (cfd < 0)
+        err(EXIT_FAILURE, "failed to accept connection");
+
+    last_cfd = cfd;
 }
 
 static int loop(void)
 {
     int udev_mon_fd = udev_monitor_get_fd(input_mon);
-    struct epoll_event events[4], event = {
+    struct epoll_event events[4], udev_event = {
         .data.fd = udev_mon_fd,
+        .events = EPOLLIN | EPOLLET
+    }, socket_event = {
+        .data.fd = server_sock,
         .events = EPOLLIN | EPOLLET
     };
 
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, udev_mon_fd, &event) < 0)
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, udev_mon_fd, &udev_event) < 0)
+        err(EXIT_FAILURE, "failed to add udev to epoll");
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_sock, &socket_event) < 0)
         err(EXIT_FAILURE, "failed to add socket to epoll");
 
     while (true) {
@@ -290,6 +275,8 @@ static int loop(void)
 
             if (evt->events & EPOLLERR || evt->events & EPOLLHUP)
                 close(evt->data.fd);
+            else if (evt->data.fd == server_sock)
+                accept_conn();
             else if (evt->data.fd == udev_mon_fd)
                 udev_monitor_input();
             else
